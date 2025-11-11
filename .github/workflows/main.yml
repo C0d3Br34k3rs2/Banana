@@ -1,0 +1,86 @@
+name: Unit Tests
+ 
+on:
+  push:
+    branches:
+      - main
+      - infra/runner-toevoegen
+  pull_request:
+    branches:
+      - main
+      - develop
+ 
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Haal de repository op
+        uses: actions/checkout@v4
+ 
+      - name: Installeer .NET SDK
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: '8.0.x'
+ 
+      - name: Installeer MAUI workloads
+        run: dotnet workload install maui-android
+ 
+      - name: Herstel afhankelijkheden
+        run: dotnet restore
+ 
+      - name: Bouw de applicatie
+        run: dotnet build --configuration Release --no-restore
+ 
+      - name: Voer geautomatiseerde tests uit
+        run: |
+          dotnet test LearnQuickTyping/LearnQuickTyping.TestCore/LearnQuickTyping.TestCore.csproj \
+            --configuration Release \
+            --no-restore --no-build \
+            --logger "trx;LogFileName=TestResults.trx" \
+            --logger "console;verbosity=detailed" \
+            --results-directory "TestResults"
+        continue-on-error: true
+ 
+      - name: Genereer test log
+        run: |
+          echo "=== GEAUTOMATISEERDE TEST RAPPORT ===" > TestResults/test-log.txt
+          echo "Datum: $(date)" >> TestResults/test-log.txt
+          echo "Pipeline run: ${{ github.run_number }}" >> TestResults/test-log.txt
+          echo "Branch: ${{ github.ref_name }}" >> TestResults/test-log.txt
+          echo "Commit: ${{ github.sha }}" >> TestResults/test-log.txt
+          echo "" >> TestResults/test-log.txt
+          
+          if [ -f "TestResults/TestResults.trx" ]; then
+            echo "TEST RESULTATEN:" >> TestResults/test-log.txt
+            TOTAL=$(grep -o 'total="[0-9]*"' TestResults/TestResults.trx | grep -o '[0-9]*' || echo "0")
+            PASSED=$(grep -o 'passed="[0-9]*"' TestResults/TestResults.trx | grep -o '[0-9]*' || echo "0")
+            FAILED=$(grep -o 'failed="[0-9]*"' TestResults/TestResults.trx | grep -o '[0-9]*' || echo "0")
+            
+            echo "- Totaal: $TOTAL tests" >> TestResults/test-log.txt
+            echo "- Geslaagd: $PASSED tests" >> TestResults/test-log.txt
+            echo "- Gefaald: $FAILED tests" >> TestResults/test-log.txt
+            
+            if [ "$FAILED" = "0" ]; then
+              echo "- Status: ALLE TESTS GESLAAGD" >> TestResults/test-log.txt
+            else
+              echo "- Status: $FAILED TESTS GEFAALD" >> TestResults/test-log.txt
+            fi
+          else
+            echo "FOUT: Geen test resultaten gevonden!" >> TestResults/test-log.txt
+          fi
+          
+          echo "" >> TestResults/test-log.txt
+          echo "=== INSTRUCTIES ===" >> TestResults/test-log.txt
+          echo "1. Download dit artefact" >> TestResults/test-log.txt
+          echo "2. Open TestResults.trx in Visual Studio voor details" >> TestResults/test-log.txt
+          echo "3. Bekijk test-log.txt voor samenvatting" >> TestResults/test-log.txt
+        if: always()
+ 
+      - name: Upload test resultaten
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-resultaten
+          path: |
+            TestResults/TestResults.trx
+            TestResults/test-log.txt
+        if: always()
